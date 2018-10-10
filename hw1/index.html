@@ -1,0 +1,63 @@
+<!doctype html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<title>hw1</title>
+<script src="webgl-utils.js" type="application/javascript"></script>
+<script src="webgl-debug.js" type="application/javascript"></script>
+<script src="J3DI.js" type="application/javascript"></script>
+<script src="J3DIMath.js" type="application/javascript"></script>
+<script type="x-shader/x-vertex" id="vshader">
+uniform mat4 u_modelViewMatrix;
+uniform mat4 u_projMatrix;
+uniform mat4 u_normalMatrix;
+uniform vec3 lightDir;
+attribute vec4 vNormal;
+attribute vec4 vColor;
+attribute vec4 vPosition;
+varying float v_Dot;
+varying vec4 v_Color;
+void main() {
+    gl_Position = u_projMatrix * u_modelViewMatrix * vPosition;
+    v_Color = vColor;
+
+    vec4 transNormal = u_normalMatrix * vNormal;
+    v_Dot = max(dot(transNormal.xyz, lightDir), 0.0) + 0.6;
+}
+</script>
+<script type="x-shader/x-fragment" id="fshader">
+precision mediump float;
+varying float v_Dot;
+varying vec4 v_Color;
+void main() {
+    gl_FragColor = vec4(v_Color.xyz * v_Dot, v_Color.a);
+}
+</script>
+<script src="main.js"></script>
+<style type="text/css">
+#framerate {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    font-size: 2em;
+    color: white;
+}
+#panel {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    font-size: 2em;
+    color: white;
+}
+</style>
+</head>
+<body onload="start()">
+<canvas id="canvas-main">
+    Your browser doesn't appear to support the <code>&lt;canvas&gt;</code> element.
+</canvas>
+<div id="framerate"></div>
+<div id="panel">
+    trackball enabled (use mouse drag)
+</div>
+</body>
+</html>
