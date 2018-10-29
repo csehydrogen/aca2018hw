@@ -73,7 +73,7 @@ function reshape(gl) {
     gl.viewport(0, 0, g.width, g.height);
     g.perspectiveMatrix = new J3DIMatrix4();
     g.perspectiveMatrix.perspective(30, g.width / g.height, 1, 10000);
-    g.perspectiveMatrix.translate(0, 0, -50);
+    g.perspectiveMatrix.translate(0, 0, -1000);
 }
 
 function logMat(mat) {
@@ -91,12 +91,14 @@ function logVec(vec) {
 }
 
 function updateTrackBall(mat) {
-    var axis = new J3DIVector3(g.mouseVecStart[0], g.mouseVecStart[1], g.mouseVecStart[2]);
-    axis.cross(g.mouseVecCur);
-    var angle = Math.acos(Math.min(1, g.mouseVecStart.dot(g.mouseVecCur)));
     var r = new J3DIMatrix4();
     r.makeIdentity();
-    r.rotate(angle / Math.PI * 180, axis[0], axis[1], axis[2]);
+    if (g.mouseVecStart) {
+        var axis = new J3DIVector3(g.mouseVecStart[0], g.mouseVecStart[1], g.mouseVecStart[2]);
+        axis.cross(g.mouseVecCur);
+        var angle = Math.acos(Math.min(1, g.mouseVecStart.dot(g.mouseVecCur)));
+        r.rotate(angle / Math.PI * 180, axis[0], axis[1], axis[2]);
+    }
     r.multiply(mat);
     return r;
 }
@@ -105,13 +107,11 @@ MatrixStack = function() {
     this.stack = [];
 }
 
-MatrixStack.prototype.pop = function() {
+MatrixStack.prototype.pop = function(m) {
     if (this.stack.length == 0) {
-        var m = new J3DIMatrix4();
         m.makeIdentity();
-        return m;
     }
-    return this.stack.pop();
+    m.load(this.stack.pop());
 }
 
 MatrixStack.prototype.push = function(m) {
@@ -140,28 +140,69 @@ Link = function(jointMatrix, t, draw, links) {
     this.links = links;
 }
 
-function drawLinkTree(here) {
-    var m;
-    if (here.draw) {
-        m = new J3DIMatrix4(g.mvMatrix);
-        g.mvMatrix.multiply(here.jointMatrix);
-        g.mvMatrix.scale(here.t / 2, 0.4, 0.4);
-        g.mvMatrix.translate(here.t / 2, 0, 0);
+function drawBVH(here) {
+    var i;
+
+    var r = [], tx = here.offset[0], ty = here.offset[1], tz = here.offset[2];
+    if (here.channels) {
+        for (i = 0; i < here.channels.length; ++i) {
+            var t = g.bvh.motion.frames[g.frameI][g.frameJ++];
+            switch (here.channels[i]) {
+                case "Xposition": tx += t; break;
+                case "Yposition": ty += t; break;
+                case "Zposition": tz += t; break;
+                case "Xrotation": r.push([0, t]); break;
+                case "Yrotation": r.push([1, t]); break;
+                case "Zrotation": r.push([2, t]); break;
+                default: // wtf?
+            }
+        }
+    }
+
+    var v1 = new J3DIVector3(1, 0, 0);
+    var v2 = new J3DIVector3(tx, ty, tz);
+    var cosa = v1.dot(v2) / (v1.vectorLength() * v2.vectorLength());
+    var a = Math.acos(Math.max(-1, Math.min(1, cosa)));
+    v1.cross(v2);
+
+    var stk = new MatrixStack();
+    if (here.type != "ROOT") {
+        stk.push(g.mvMatrix);
+        g.mvMatrix.rotate(a / Math.PI * 180, v1[0], v1[1], v1[2]);
+        g.mvMatrix.scale(v2.vectorLength() / 2, 1, 1);
+        g.mvMatrix.translate(1, 0, 0);
         g.mvMatrix.setUniform(gl, g.u_modelViewMatrixLoc, false);
         g.normalMatrix.load(g.mvMatrix);
         g.normalMatrix.invert();
         g.normalMatrix.transpose();
         g.normalMatrix.setUniform(gl, g.u_normalMatrixLoc, false);
         gl.drawElements(gl.TRIANGLES, g.box.numIndices, gl.UNSIGNED_BYTE, 0);
-        g.mvMatrix.load(m);
+        stk.pop(g.mvMatrix);
     }
-    m = new J3DIMatrix4(g.mvMatrix);
-    g.mvMatrix.multiply(here.jointMatrix);
-    g.mvMatrix.translate(here.t, 0, 0);
-    for (var i = 0; i < here.links.length; ++i) {
-        drawLinkTree(here.links[i]);
+
+    stk.push(g.mvMatrix);
+    g.mvMatrix.translate(tx, ty, tz);
+    for (i = 0; i < r.length; ++i) {
+        switch (r[i][0]) {
+            case 0: g.mvMatrix.rotate(r[i][1], 1, 0, 0); break;
+            case 1: g.mvMatrix.rotate(r[i][1], 0, 1, 0); break;
+            case 2: g.mvMatrix.rotate(r[i][1], 0, 0, 1); break;
+            default: // wtf?
+        }
     }
-    g.mvMatrix.load(m);
+    stk.push(g.mvMatrix);
+    g.mvMatrix.scale(2, 2, 2);
+    g.mvMatrix.setUniform(gl, g.u_modelViewMatrixLoc, false);
+    g.normalMatrix.load(g.mvMatrix);
+    g.normalMatrix.invert();
+    g.normalMatrix.transpose();
+    g.normalMatrix.setUniform(gl, g.u_normalMatrixLoc, false);
+    gl.drawElements(gl.TRIANGLES, g.box.numIndices, gl.UNSIGNED_BYTE, 0);
+    stk.pop(g.mvMatrix);
+    for (i = 0; i < here.child.length; ++i) {
+        drawBVH(here.child[i]);
+    }
+    stk.pop(g.mvMatrix);
 }
 
 function drawPicture(gl) {
@@ -177,51 +218,27 @@ function drawPicture(gl) {
     }
     g.pMatrix.setUniform(gl, g.u_projMatrixLoc, false);
 
-    var curTime = new Date().getTime();
-    var headAngle = curTime / 1000 * 360;
-    var rightarmAngle = curTime / 1000 * -360;
-    var rightlegAngle = 30 * Math.cos(curTime / 1000 * Math.PI);
-    var leftlegAngle = -30 * Math.cos(curTime / 1000 * Math.PI);
-    var rightkneeAngle = 30 + rightlegAngle;
-    var leftkneeAngle = 30 + leftlegAngle;
-    var jitter = 10 * Math.cos(curTime / 1000 * Math.PI);
-
-    var human =
-        // waist (root)
-        new Link(getBallAndSocketJoint(0, 0, 0), 0, false, [
-            // neck
-            new Link(getBallAndSocketJoint(0, 0, 90), 2, true, [
-                // head
-                new Link(getBallAndSocketJoint(headAngle, 10, 0), 2, true, []),
-                // left arm
-                new Link(getBallAndSocketJoint(0, 0, -100), 1.5, true, [
-                    new Link(getBallAndSocketJoint(0, 0, -60), 1.5, true, [
-                        new Link(getRevoluteJoint(90, -30), 1.5, true, [])
-                    ])
-                ]),
-                // right arm
-                new Link(getBallAndSocketJoint(0, 0, 100), 1.5, true, [
-                    new Link(getBallAndSocketJoint(rightarmAngle, 0, 60), 1.5, true, [
-                        new Link(getRevoluteJoint(90, 30), 1.5, true, [])
-                    ])
-                ])
-            ]),
-            // right leg
-            new Link(getBallAndSocketJoint(0, 0, 240), 2, true, [
-                new Link(getBallAndSocketJoint(0, rightlegAngle, 30), 2, true, [
-                    new Link(getRevoluteJoint(0, rightkneeAngle), 2, true, [])
-                ])
-            ]),
-            // left leg
-            new Link(getBallAndSocketJoint(0, 0, 300), 2, true, [
-                new Link(getBallAndSocketJoint(0, leftlegAngle, -30), 2, true, [
-                    new Link(getRevoluteJoint(0, leftkneeAngle), 2, true, [])
-                ])
-            ])
-        ]);
 
     g.mvMatrix.makeIdentity();
-    drawLinkTree(human);
+    if (g.bvh) {
+        if (g.autoplay.checked) {
+            var curTime = new Date().getTime();
+            g.frameI = Math.round((curTime - g.bvhStartTime) / 1000 / g.bvh.motion.frameTime);
+            if (g.frameI >= g.bvh.motion.frameNum) {
+                g.bvhStartTime = curTime;
+                g.frameI = 0;
+            }
+            g.slider.value = g.frameI;
+        } else {
+            g.frameI = g.slider.value;
+        }
+        g.frameJ = 0;
+        drawBVH(g.bvh.hierarchy);
+        g.bvhinfo.innerHTML = "Total Frame: " + g.bvh.motion.frameNum + "<br>"
+                            + "Original FPS: " + Math.round(1 / g.bvh.motion.frameTime) + "<br>"
+                            + "Current Frame: " + g.frameI;
+
+    }
 
     framerate.snapshot();
 }
@@ -230,10 +247,13 @@ function start() {
     g.width = -1;
     g.height = -1;
     g.canvas = document.getElementById("canvas-main");
+    g.bvhinfo = document.getElementById("bvhinfo");
     g.isMouseDown = false;
     g.trackBallMat = new J3DIMatrix4();
     g.trackBallMat.makeIdentity();
     g.keystate = {};
+    g.slider = document.getElementById("slider");
+    g.autoplay = document.getElementById("autoplay");
 
     var c = g.canvas;
 
@@ -272,9 +292,9 @@ function start() {
 }
 
 function mousedownListener() {
-    g.isMouseDown = true;
     g.mouseVecStart = getMouseVec();
     g.mouseVecCur = getMouseVec();
+    g.isMouseDown = true;
 }
 
 function mousemoveListener() {
@@ -306,4 +326,25 @@ function keydownListener() {
 
 function keyupListener() {
     g.keystate[event.keyCode] = false;
+}
+
+function setupBVH(bvh) {
+    g.bvhStartTime = new Date().getTime();
+    g.slider.min = 0;
+    g.slider.value = 0;
+    g.bvh = parser.parse(bvh);
+    g.slider.max = g.bvh.motion.frameNum - 1;
+}
+
+function handleFiles(files) {
+    var fr = new FileReader();
+    fr.addEventListener('loadend', function() {
+        setupBVH(fr.result);
+    });
+    fr.readAsText(files[0]);
+}
+
+function handleBVH(i) {
+    if (i == -1) return;
+    setupBVH(bvhs[i]);
 }

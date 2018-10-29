@@ -2,11 +2,13 @@
 <html>
 <head>
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-<title>hw1</title>
+<title>hw2</title>
 <script src="webgl-utils.js" type="application/javascript"></script>
 <script src="webgl-debug.js" type="application/javascript"></script>
 <script src="J3DI.js" type="application/javascript"></script>
 <script src="J3DIMath.js" type="application/javascript"></script>
+<script src="parser.js" type="application/javascript"></script>
+<script src="bvh.js" type="application/javascript"></script>
 <script type="x-shader/x-vertex" id="vshader">
 uniform mat4 u_modelViewMatrix;
 uniform mat4 u_projMatrix;
@@ -39,14 +41,14 @@ void main() {
     position: absolute;
     top: 20px;
     left: 20px;
-    font-size: 2em;
+    font-size: 1.5em;
     color: white;
 }
 #panel {
     position: absolute;
     top: 20px;
     right: 20px;
-    font-size: 2em;
+    font-size: 1.5em;
     color: white;
 }
 </style>
@@ -57,7 +59,36 @@ void main() {
 </canvas>
 <div id="framerate"></div>
 <div id="panel">
-    trackball enabled (use mouse drag)
+    <div>
+        mouse drag: trackball view
+    </div>
+    <div>
+        autoplay: <input type="checkbox" id="autoplay" checked> <input type="range" id="slider">
+    </div>
+    <div>
+        Select from examples:<br>
+        <select onchange="handleBVH(this.value)">
+            <option value=-1>(select)</option>
+            <option value=0>A_test.bvh</option>
+            <option value=1>C_test.bvh</option>
+            <option value=2>walk-cycle.bvh</option>
+            <option value=3>walk-cycle43.bvh</option>
+            <option value=4>Trial002.bvh</option>
+            <option value=5>05_20-mb.bvh</option>
+            <option value=6>B_test.bvh</option>
+            <option value=7>05_20-daz.bvh</option>
+            <option value=8>Jackson.bvh</option>
+            <option value=9>Brekel_03_11_2016_15_47_42_body1.bvh</option>
+            <option value=10>pirouette.bvh</option>
+            <option value=11>Trial004.bvh</option>
+            <option value=12>94_01.bvh</option>
+            <option value=13>Trial001.bvh</option>
+        </select><br>
+        Or upload yours:<br>
+        <input type="file" onchange="handleFiles(this.files)"><br>
+    </div>
+    <div id="bvhinfo">
+    </div>
 </div>
 </body>
 </html>
